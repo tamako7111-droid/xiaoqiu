@@ -1,2 +1,300 @@
-# xiaoqiu
-xiaoqiu
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Valorant 灵敏度点小球 (最终修正版)</title>
+    <style>
+        /* ==================== CSS 样式 ==================== */
+        body {
+            margin: 0;
+            overflow: hidden; 
+            font-family: sans-serif;
+            color: white;
+            background-color: #1a1a1a;
+            user-select: none; 
+        }
+
+        #settings, #stats {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            z-index: 10; 
+            text-align: center;
+        }
+
+        #stats {
+            /* 统计信息放置在左上角 */
+            top: 20px;
+            left: 20px;
+            transform: none;
+            text-align: left;
+            padding: 10px 20px;
+        }
+
+        #settings input, #settings button {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            border: none;
+        }
+
+        #settings label {
+            display: block;
+            margin-top: 15px;
+        }
+
+        #settings button {
+            background-color: #ff4655; /* Valorant 红色 */
+            color: white;
+            cursor: pointer;
+            font-size: 1.1em;
+            transition: background-color 0.2s;
+        }
+
+        #settings button:hover {
+            background-color: #e53949;
+        }
+
+        #game-area {
+            width: 100vw;
+            height: 100vh;
+            background-color: #222;
+            cursor: none; /* 隐藏默认鼠标指针 */
+            position: relative; 
+        }
+
+        #crosshair {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border: 1px solid white;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 50%;
+            transform: translate(-50%, -50%); 
+            pointer-events: none; /* 允许点击穿透准星 */
+            z-index: 100;
+        }
+
+        .target {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background-color: #ff4655; 
+            border-radius: 50%;
+            cursor: pointer; 
+            box-shadow: 0 0 10px rgba(255, 70, 85, 0.7);
+            transition: transform 0.1s;
+        }
+        .target:hover {
+            transform: scale(1.05);
+            background-color: #e53949;
+        }
+    </style>
+</head>
+<body>
+    
+    <div id="settings">
+        <h2>Valorant 点小球训练</h2>
+        <p>请使用**鼠标左键**射击。按 **ESC** 键暂停/退出。</p>
+        <label for="sens">Valorant 灵敏度 (例如 0.4):</label>
+        <input type="number" id="sens" value="0.4" step="0.01">
+        <label for="dpi">鼠标 DPI:</label>
+        <input type="number" id="dpi" value="800" step="100">
+        <button onclick="startGame()">开始游戏</button>
+    </div>
+
+    <div id="stats" style="display:none;">
+        <h3>训练数据</h3>
+        <p>得分: <span id="score">0</span></p>
+        <p>剩余时间: <span id="time">60</span>s</p>
+        <p>灵敏度已锁定: <span id="currentSensDisplay"></span></p>
+    </div>
+
+    <div id="game-area" style="display:none;">
+        <div id="crosshair"></div>
+        </div>
+
+    <script>
+        /* ==================== JavaScript 逻辑 (光标重叠检测修正版) ==================== */
+
+        const VALORANT_SENSITIVITY_BASE = 1; 
+        let gameArea;
+        let crosshair;
+        let currentSens; 
+        let currentTarget; // 保存当前的小球元素
+
+        // 游戏状态
+        let score = 0;
+        let time = 60;
+        let timerId;
+        let isGameRunning = false;
+        let crosshairX = 0;
+        let crosshairY = 0;
+
+        function startGame() {
+            if (isGameRunning) return;
+
+            const sensInput = document.getElementById('sens').value;
+            currentSens = parseFloat(sensInput);
+
+            if (isNaN(currentSens) || currentSens <= 0) {
+                alert("请输入有效的 Valorant 灵敏度！");
+                return;
+            }
+
+            document.getElementById('settings').style.display = 'none';
+            document.getElementById('stats').style.display = 'block';
+            document.getElementById('game-area').style.display = 'block';
+            document.getElementById('currentSensDisplay').textContent = currentSens;
+            
+            gameArea = document.getElementById('game-area');
+            crosshair = document.getElementById('crosshair');
+            score = 0;
+            time = 60;
+            isGameRunning = true;
+            document.getElementById('score').textContent = score;
+            document.getElementById('time').textContent = time;
+
+            crosshairX = gameArea.clientWidth / 2;
+            crosshairY = gameArea.clientHeight / 2;
+            updateCrosshairPosition(crosshairX, crosshairY);
+
+            // **** 核心修改：绑定全局鼠标按下事件来检测射击 ****
+            gameArea.addEventListener('mousedown', handleShoot, false); 
+            gameArea.requestPointerLock();
+            startTimer();
+            generateTarget(); 
+        }
+
+        // === 灵敏度控制的核心逻辑 ===
+
+        function handleMouseMove(event) {
+            if (!isGameRunning || document.pointerLockElement !== gameArea) return;
+
+            const movementX = event.movementX;
+            const movementY = event.movementY;
+            const sensFactor = currentSens * VALORANT_SENSITIVITY_BASE;
+            const dx = movementX * sensFactor;
+            const dy = movementY * sensFactor;
+
+            crosshairX = Math.max(0, Math.min(gameArea.clientWidth, crosshairX + dx));
+            crosshairY = Math.max(0, Math.min(gameArea.clientHeight, crosshairY + dy));
+
+            updateCrosshairPosition(crosshairX, crosshairY);
+        }
+
+        function updateCrosshairPosition(x, y) {
+            crosshair.style.left = `${x}px`;
+            crosshair.style.top = `${y}px`;
+        }
+
+        document.addEventListener('mousemove', handleMouseMove, false);
+
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement !== gameArea) {
+                if(isGameRunning) {
+                    alert("游戏暂停：鼠标已解锁。点击 '开始游戏' 按钮继续。");
+                    clearInterval(timerId);
+                    isGameRunning = false;
+                    // 移除射击监听器
+                    gameArea.removeEventListener('mousedown', handleShoot, false); 
+                    document.getElementById('settings').style.display = 'block';
+                }
+            }
+        }, false);
+
+        // === 游戏逻辑 (生成/射击) ===
+
+        function generateTarget() {
+            if (!isGameRunning) return;
+
+            gameArea.querySelectorAll('.target').forEach(t => t.remove());
+
+            const size = 50; 
+            const x = Math.floor(Math.random() * (gameArea.clientWidth - size));
+            const y = Math.floor(Math.random() * (gameArea.clientHeight - size));
+
+            const target = document.createElement('div');
+            target.className = 'target';
+            target.style.left = `${x}px`;
+            target.style.top = `${y}px`;
+            
+            // **不再绑定点击事件到小球本身**
+            
+            currentTarget = target; // 保存当前小球的引用
+            gameArea.appendChild(target);
+        }
+
+        // **** 核心命中检测函数 ****
+        function handleShoot(event) {
+            if (!isGameRunning || event.button !== 0 || !currentTarget) return; // 必须是左键
+
+            // 1. 获取小球在屏幕上的绝对边界
+            const targetRect = currentTarget.getBoundingClientRect();
+            
+            // 2. 检查准星的中心点 (crosshairX/Y) 是否在小球的边界内
+            const isHit = (
+                crosshairX >= targetRect.left &&
+                crosshairX <= targetRect.right &&
+                crosshairY >= targetRect.top &&
+                crosshairY <= targetRect.bottom
+            );
+
+            if (isHit) {
+                score++;
+                document.getElementById('score').textContent = score;
+                currentTarget.remove(); 
+                generateTarget(); // 命中后生成下一个小球
+            }
+            event.stopPropagation();
+        }
+
+        // === 计时器与结束逻辑 ===
+
+        function startTimer() {
+            clearInterval(timerId);
+            timerId = setInterval(() => {
+                time--;
+                document.getElementById('time').textContent = time;
+
+                if (time <= 0) {
+                    endGame();
+                }
+            }, 1000);
+        }
+
+        function endGame() {
+            isGameRunning = false;
+            clearInterval(timerId);
+            
+            document.exitPointerLock(); 
+            
+            gameArea.querySelectorAll('.target').forEach(t => t.remove());
+
+            alert(`训练结束！您的最终得分为: ${score}`);
+            
+            document.getElementById('stats').style.display = 'none';
+            document.getElementById('game-area').style.display = 'none';
+            document.getElementById('settings').style.display = 'block';
+            
+            // 移除射击监听器
+            gameArea.removeEventListener('mousedown', handleShoot, false); 
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            gameArea = document.getElementById('game-area');
+            // 在游戏区域点击时，如果鼠标未锁定，则尝试锁定
+            gameArea.addEventListener('click', () => {
+                if (isGameRunning && document.pointerLockElement !== gameArea) {
+                    gameArea.requestPointerLock();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
